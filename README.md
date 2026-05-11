@@ -1,23 +1,31 @@
 # aauth-go-library
 
-Go implementation of the AAuth protocol — Authenticated Authorization for autonomous agents.
+Go library for the AAuth protocol — authentication and authorization for autonomous agents.
 
-This library provides the resource-side verification primitives and the agent-side client SDK for building AAuth-compliant services and agents. It is the Go counterpart to the Python aauth library.
+Used in production by [extauth-aauth-resource](https://github.com/christian-posta/extauth-aauth-resource), an Envoy external authorization filter that enforces AAuth on inbound service requests.
+
+## What it does
+
+AAuth defines how an AI agent proves its identity and obtains authorization to call a protected resource. This library handles both sides of that exchange.
+
+**Resource servers** get primitives to verify inbound agent requests, issue 401 challenges when authorization is missing or insufficient, and mint short-lived resource tokens that agents can exchange for auth tokens.
+
+**Agents** get an SDK for signing outbound HTTP requests (RFC 9421), handling 401 challenges, exchanging resource tokens with an authorization server, and polling for deferred 202 responses.
 
 ## Packages
 
 | Package | Description |
 |---|---|
-| `pkg/aauth` | Core resource-side API: `Verify`, `Challenge`, `MintResourceToken` |
-| `pkg/aauth/agent` | Agent SDK: request signing, token exchange, deferred polling |
-| `pkg/aauth/headers` | AAuth HTTP header parsing and serialization |
-| `pkg/aauth/http` | 202 Deferred response helpers |
-| `pkg/aauth/identifiers` | AAuth server/agent identifier validation |
-| `pkg/aauth/keys` | JWKS fetcher with caching, JWK conversion |
-| `pkg/aauth/metadata` | Well-known metadata document types and fetcher |
+| `pkg/aauth` | Core resource-side API: `Verify`, `NewChallenge`, `MintResourceToken` |
+| `pkg/aauth/agent` | Agent SDK: request signing, challenge handling, token exchange, deferred polling |
+| `pkg/aauth/headers` | AAuth HTTP header parsing and serialization (`AAuth-Requirement`, `Accept-Signature`, `Signature-Error`, `Mission`, `Capabilities`) |
+| `pkg/aauth/http` | 202 deferred response helpers |
+| `pkg/aauth/identifiers` | AAuth server and agent identifier validation and parsing |
+| `pkg/aauth/keys` | JWKS fetcher with caching, JWK conversion, thumbprint calculation |
+| `pkg/aauth/metadata` | Well-known metadata document types and fetcher (agent, auth, person, resource servers) |
 | `pkg/aauth/transport` | `http.RoundTripper` that signs outbound requests |
 | `pkg/httpsig` | RFC 9421 HTTP Message Signatures (sign + verify) |
-| `pkg/sigkey` | Signature-Key header parsing |
+| `pkg/sigkey` | Signature-Key header parsing (`jwt`, `jwks_uri`, `hwk` schemes) |
 
 ## Installation
 
@@ -30,9 +38,7 @@ go get github.com/christian-posta/aauth-go-library
 ### Resource server: verifying an inbound request
 
 ```go
-import (
-    "github.com/christian-posta/aauth-go-library/pkg/aauth"
-)
+import "github.com/christian-posta/aauth-go-library/pkg/aauth"
 
 opts := aauth.VerifyOptions{
     Issuer: "https://resource.example.com",
@@ -40,6 +46,7 @@ opts := aauth.VerifyOptions{
         {Issuer: "https://agents.example.com", JwksURI: "https://agents.example.com/jwks.json"},
     },
     AllowedSignatureKeySchemes: []string{"jwt", "jwks_uri", "hwk"},
+    AllowedJWTTypes:            []string{"aa-agent+jwt", "aa-auth+jwt"},
     SignatureWindow:             60 * time.Second,
 }
 
@@ -49,32 +56,33 @@ switch result.Identity.Level {
 case aauth.LevelAuthorized:
     // pass through
 case aauth.LevelIdentified, aauth.LevelPseudonymous:
-    // issue a challenge
-    challenge := aauth.NewChallenge(challengeOpts, result.Err, result.Identity.AgentHint, false)
+    challenge := aauth.NewChallenge(challengeOpts, result.Err, nil, false)
     cr := challenge.Build()
     for k, vs := range cr.Headers {
         for _, v := range vs {
             w.Header().Add(k, v)
         }
     }
-    w.WriteHeader(cr.StatusCode)
+    w.WriteHeader(cr.Status)
 }
 ```
 
-### Resource server: issuing a resource token
+### Resource server: minting a resource token
 
 ```go
 token, err := aauth.MintResourceToken(
     aauth.MintResourceTokenOptions{
-        Issuer:     "https://resource.example.com",
-        SigningKey:  privateKey,
-        KeyID:      "res-key-1",
-        TTL:        5 * time.Minute,
+        Issuer:        "https://resource.example.com",
+        Aud:           "https://auth.example.com",
+        SigningKeyKid: "res-key-1",
+        SigningKey:    privateKey,
     },
     aauth.ResourceTokenClaims{
-        Subject:  identity.AgentID,
-        Audience: []string{"https://auth.example.com"},
-        Scope:    []string{"read"},
+        Iss:      "https://resource.example.com",
+        Agent:    "aauth:alice@agents.example.com",
+        AgentJKT: agentThumbprint,
+        Exp:      time.Now().Add(5 * time.Minute).Unix(),
+        Scope:    "read",
     },
 )
 ```
@@ -100,12 +108,16 @@ if err := signer.Sign(ctx, req, components); err != nil {
 
 ### Agent: performing a full token exchange
 
+`ExchangeResourceToken` wires together the challenge handler, token exchanger, and deferred poller into a single call.
+
 ```go
-authToken, err := agent.ExchangeResourceToken(ctx, agent.ExchangeOptions{
+result, err := agent.ExchangeResourceToken(ctx, agent.ExchangeResourceTokenOptions{
     ResourceToken: resourceToken,
-    AuthServerURL: "https://auth.example.com/token",
+    Signer:        signer,
+    PSMetadataURL: "https://person.example.com/.well-known/aauth-person.json",
     HTTPClient:    http.DefaultClient,
 })
+// result.AuthToken is the bearer token to use on the resource request
 ```
 
 ### Agent: transparent signing via RoundTripper
@@ -124,7 +136,7 @@ client := &http.Client{
 go test ./...
 ```
 
-For use in tests, `pkg/aauth/aauthtest` provides a `MockJWKSClient` that implements `aauth.JWKSFetcher`:
+`pkg/aauth/aauthtest` provides a `MockJWKSClient` that implements `aauth.JWKSFetcher`:
 
 ```go
 import "github.com/christian-posta/aauth-go-library/pkg/aauth/aauthtest"
