@@ -8,5 +8,5 @@
 // model the AAuth-Mission and AAuth-Capabilities request headers (SPEC §8).
 //
 // All header values use RFC 8941 Structured Field syntax via
-// aauth-service/pkg/httpsig/structfields.
+// github.com/christian-posta/aauth-go-library/pkg/httpsig/structfields.
 package headers

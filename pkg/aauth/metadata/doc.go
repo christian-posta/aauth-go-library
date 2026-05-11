@@ -10,6 +10,6 @@
 //
 // The Build* helpers ([BuildResourceMetadata] etc.) marshal these structs to
 // JSON. [Fetcher] resolves a server identifier to the matching well-known URL
-// (using [aauth-service/pkg/aauth/identifiers] for validation) and unmarshals
+// (using [github.com/christian-posta/aauth-go-library/pkg/aauth/identifiers] for validation) and unmarshals
 // the response.
 package metadata
