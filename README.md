@@ -2,30 +2,15 @@
 
 Go library for the AAuth protocol — authentication and authorization for autonomous agents.
 
-Used in production by [extauth-aauth-resource](https://github.com/christian-posta/extauth-aauth-resource), an Envoy external authorization filter that enforces AAuth on inbound service requests.
+Used in production by [extauth-aauth-resource](https://github.com/christian-posta/extauth-aauth-resource), an [Agentgateway](https://agentgateway.dev)/Envoy external authorization filter ([ext_authz](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/ext_authz/v3/ext_authz.proto)) that enforces [AAuth](https://www.aauth.dev) on inbound service requests.
 
 ## What it does
 
-AAuth defines how an AI agent proves its identity and obtains authorization to call a protected resource. This library handles both sides of that exchange.
+[AAuth](https://www.aauth.dev) is an auth protocol that defines how an AI agent proves its identity and obtains authorization to call a protected resource. This library handles both sides of that exchange (caller/receiver).
 
 **Resource servers** get primitives to verify inbound agent requests, issue 401 challenges when authorization is missing or insufficient, and mint short-lived resource tokens that agents can exchange for auth tokens.
 
 **Agents** get an SDK for signing outbound HTTP requests (RFC 9421), handling 401 challenges, exchanging resource tokens with an authorization server, and polling for deferred 202 responses.
-
-## Packages
-
-| Package | Description |
-|---|---|
-| `pkg/aauth` | Core resource-side API: `Verify`, `NewChallenge`, `MintResourceToken` |
-| `pkg/aauth/agent` | Agent SDK: request signing, challenge handling, token exchange, deferred polling |
-| `pkg/aauth/headers` | AAuth HTTP header parsing and serialization (`AAuth-Requirement`, `Accept-Signature`, `Signature-Error`, `Mission`, `Capabilities`) |
-| `pkg/aauth/http` | 202 deferred response helpers |
-| `pkg/aauth/identifiers` | AAuth server and agent identifier validation and parsing |
-| `pkg/aauth/keys` | JWKS fetcher with caching, JWK conversion, thumbprint calculation |
-| `pkg/aauth/metadata` | Well-known metadata document types and fetcher (agent, auth, person, resource servers) |
-| `pkg/aauth/transport` | `http.RoundTripper` that signs outbound requests |
-| `pkg/httpsig` | RFC 9421 HTTP Message Signatures (sign + verify) |
-| `pkg/sigkey` | Signature-Key header parsing (`jwt`, `jwks_uri`, `hwk` schemes) |
 
 ## Installation
 
